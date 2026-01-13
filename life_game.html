@@ -2,142 +2,205 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>Game of Life (30x30)</title>
+    <title>Game of Life (50x50 Canvas)</title>
     <style>
-        body { display: flex; flex-direction: column; align-items: center; font-family: sans-serif; background: #222; color: #fff; }
-        h1 { margin: 10px 0; font-size: 1.5rem; }
-        .controls { margin-bottom: 10px; }
-        button { padding: 8px 16px; font-size: 1rem; cursor: pointer; background: #444; color: #fff; border: 1px solid #666; border-radius: 4px; }
-        button:hover { background: #555; }
-        #grid { 
-            display: grid; 
-            grid-template-columns: repeat(30, 20px); 
-            grid-template-rows: repeat(30, 20px); 
-            gap: 1px; 
-            background: #444; 
-            border: 1px solid #555;
+        body { 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            font-family: sans-serif; 
+            background: #222; 
+            color: #fff; 
+            margin: 0;
+            padding: 20px;
         }
-        .cell { width: 20px; height: 20px; background: #000; cursor: pointer; }
-        .cell.alive { background: #0f0; } /* 生存セルは緑 */
+        h1 { margin: 10px 0; font-size: 1.5rem; }
+        .controls { margin-bottom: 15px; display: flex; gap: 10px; align-items: center;}
+        button { 
+            padding: 8px 16px; 
+            font-size: 0.9rem; 
+            cursor: pointer; 
+            background: #444; 
+            color: #fff; 
+            border: 1px solid #666; 
+            border-radius: 4px; 
+        }
+        button:hover { background: #555; }
+        canvas { 
+            border: 1px solid #555; 
+            background: #000; 
+            cursor: crosshair;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+        }
+        .info { margin-top: 5px; font-size: 0.8rem; color: #888; }
     </style>
 </head>
 <body>
-    <h1>ライフゲーム (30x30)</h1>
+    <h1>ライフゲーム (50x50 High Speed)</h1>
     <div class="controls">
         <button id="btn-toggle">Start</button>
+        <button id="btn-step">Step</button>
         <button id="btn-random">Random</button>
         <button id="btn-clear">Clear</button>
     </div>
-    <div id="grid"></div>
+    <canvas id="gameCanvas" width="600" height="600"></canvas>
+    <div class="info">Click/Drag to draw cells</div>
 
     <script>
-        const ROWS = 30;
-        const COLS = 30;
-        let grid = [];
-        let running = false;
-        let intervalId = null;
+        const ROWS = 50;
+        const COLS = 50;
+        const CELL_SIZE = 12; // 600px / 50 = 12px
+        const COLOR_ALIVE = '#0f0';
+        const COLOR_DEAD = '#000';
+        const COLOR_GRID = '#1a1a1a';
 
-        const gridEl = document.getElementById('grid');
-        const btnToggle = document.getElementById('btn-toggle');
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        let grid = createGrid();
+        let animationId = null;
+        let isRunning = false;
+        let isDrawing = false; // マウスドラッグ描画用
 
-        // グリッド初期化
-        function initGrid() {
-            gridEl.innerHTML = '';
-            grid = new Array(ROWS).fill(null).map(() => new Array(COLS).fill(false));
+        // 初期化：2次元配列を作成
+        function createGrid() {
+            return new Array(ROWS).fill(null).map(() => new Array(COLS).fill(0));
+        }
+
+        // 描画処理 (Canvas)
+        function draw() {
+            // 全体をクリア
+            ctx.fillStyle = COLOR_DEAD;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 生きているセルを描画
+            ctx.fillStyle = COLOR_ALIVE;
+            for (let y = 0; y < ROWS; y++) {
+                for (let x = 0; x < COLS; x++) {
+                    if (grid[y][x]) {
+                        ctx.fillRect(x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE - 1, CELL_SIZE - 1);
+                    }
+                }
+            }
+
+            // グリッド線（オプション：重ければ消してもOK）
+            ctx.strokeStyle = COLOR_GRID;
+            ctx.beginPath();
+            for (let i = 0; i <= ROWS; i++) {
+                ctx.moveTo(0, i * CELL_SIZE);
+                ctx.lineTo(canvas.width, i * CELL_SIZE);
+            }
+            for (let j = 0; j <= COLS; j++) {
+                ctx.moveTo(j * CELL_SIZE, 0);
+                ctx.lineTo(j * CELL_SIZE, canvas.height);
+            }
+            ctx.stroke();
+        }
+
+        // 次の世代の計算
+        function computeNextGen() {
+            const nextGrid = grid.map(arr => [...arr]); // コピー作成
             
             for (let y = 0; y < ROWS; y++) {
                 for (let x = 0; x < COLS; x++) {
-                    const cell = document.createElement('div');
-                    cell.classList.add('cell');
-                    cell.dataset.y = y;
-                    cell.dataset.x = x;
-                    cell.addEventListener('click', () => toggleCell(y, x, cell));
-                    gridEl.appendChild(cell);
-                }
-            }
-        }
+                    // 周囲の生存数をカウント
+                    let neighbors = 0;
+                    for (let dy = -1; dy <= 1; dy++) {
+                        for (let dx = -1; dx <= 1; dx++) {
+                            if (dx === 0 && dy === 0) continue;
+                            const ny = y + dy;
+                            const nx = x + dx;
+                            // 範囲外チェック
+                            if (ny >= 0 && ny < ROWS && nx >= 0 && nx < COLS) {
+                                neighbors += grid[ny][nx];
+                            }
+                        }
+                    }
 
-        // セルの生死反転
-        function toggleCell(y, x, cellEl) {
-            grid[y][x] = !grid[y][x];
-            cellEl.classList.toggle('alive', grid[y][x]);
-        }
-
-        // 表示更新
-        function draw() {
-            const cells = document.querySelectorAll('.cell');
-            cells.forEach(cell => {
-                const y = parseInt(cell.dataset.y);
-                const x = parseInt(cell.dataset.x);
-                if (grid[y][x]) cell.classList.add('alive');
-                else cell.classList.remove('alive');
-            });
-        }
-
-        // 次の世代を計算
-        function nextGen() {
-            const newGrid = grid.map(arr => [...arr]);
-            for (let y = 0; y < ROWS; y++) {
-                for (let x = 0; x < COLS; x++) {
-                    const neighbors = countNeighbors(y, x);
-                    if (grid[y][x]) {
-                        if (neighbors < 2 || neighbors > 3) newGrid[y][x] = false;
-                    } else {
-                        if (neighbors === 3) newGrid[y][x] = true;
+                    const cell = grid[y][x];
+                    if (cell === 1 && (neighbors < 2 || neighbors > 3)) {
+                        nextGrid[y][x] = 0;
+                    } else if (cell === 0 && neighbors === 3) {
+                        nextGrid[y][x] = 1;
                     }
                 }
             }
-            grid = newGrid;
-            draw();
+            grid = nextGrid;
         }
 
-        function countNeighbors(y, x) {
-            let count = 0;
-            for (let dy = -1; dy <= 1; dy++) {
-                for (let dx = -1; dx <= 1; dx++) {
-                    if (dy === 0 && dx === 0) continue;
-                    const ny = y + dy;
-                    const nx = x + dx;
-                    if (ny >= 0 && ny < ROWS && nx >= 0 && nx < COLS && grid[ny][nx]) {
-                        count++;
-                    }
-                }
+        function loop() {
+            computeNextGen();
+            draw();
+            if (isRunning) {
+                // requestAnimationFrameでモニタのリフレッシュレートに合わせて更新（最速）
+                // 速すぎる場合は setTimeout(() => requestAnimationFrame(loop), 50) とかで調整
+                animationId = setTimeout(() => requestAnimationFrame(loop), 30); 
             }
-            return count;
         }
 
-        // ランダム配置
-        document.getElementById('btn-random').addEventListener('click', () => {
-            grid = grid.map(row => row.map(() => Math.random() > 0.7));
-            draw();
-        });
+        // --- イベントハンドラ ---
 
-        // クリア
-        document.getElementById('btn-clear').addEventListener('click', () => {
-            grid = grid.map(row => row.map(() => false));
-            stopGame();
-            draw();
-        });
-
-        // スタート/ストップ
+        const btnToggle = document.getElementById('btn-toggle');
+        
         btnToggle.addEventListener('click', () => {
-            if (running) stopGame();
-            else startGame();
+            if (isRunning) {
+                isRunning = false;
+                cancelAnimationFrame(animationId);
+                btnToggle.textContent = 'Start';
+            } else {
+                isRunning = true;
+                btnToggle.textContent = 'Stop';
+                loop();
+            }
         });
 
-        function startGame() {
-            running = true;
-            btnToggle.textContent = 'Stop';
-            intervalId = setInterval(nextGen, 200); // 200ms更新
+        document.getElementById('btn-step').addEventListener('click', () => {
+            if (isRunning) btnToggle.click(); // 停止
+            computeNextGen();
+            draw();
+        });
+
+        document.getElementById('btn-random').addEventListener('click', () => {
+            grid = grid.map(row => row.map(() => Math.random() > 0.9 ? 1 : 0));
+            draw();
+        });
+
+        document.getElementById('btn-clear').addEventListener('click', () => {
+            grid = createGrid();
+            if (isRunning) btnToggle.click();
+            draw();
+        });
+
+        // マウス操作（クリック＆ドラッグで描画）
+        function getCellFromMouseEvent(e) {
+            const rect = canvas.getBoundingClientRect();
+            const x = Math.floor((e.clientX - rect.left) / CELL_SIZE);
+            const y = Math.floor((e.clientY - rect.top) / CELL_SIZE);
+            return { x, y };
         }
 
-        function stopGame() {
-            running = false;
-            btnToggle.textContent = 'Start';
-            clearInterval(intervalId);
-        }
+        canvas.addEventListener('mousedown', (e) => {
+            isDrawing = true;
+            const { x, y } = getCellFromMouseEvent(e);
+            if (x >= 0 && x < COLS && y >= 0 && y < ROWS) {
+                grid[y][x] = grid[y][x] ? 0 : 1; // 反転
+                draw();
+            }
+        });
 
-        initGrid();
+        canvas.addEventListener('mousemove', (e) => {
+            if (!isDrawing) return;
+            const { x, y } = getCellFromMouseEvent(e);
+            if (x >= 0 && x < COLS && y >= 0 && y < ROWS) {
+                grid[y][x] = 1; // ドラッグ中は「生」にする
+                draw();
+            }
+        });
+
+        window.addEventListener('mouseup', () => isDrawing = false);
+
+        // 初回描画
+        draw();
     </script>
 </body>
 </html>
