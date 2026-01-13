@@ -49,10 +49,7 @@
     <script>
         const ROWS = 50;
         const COLS = 50;
-        const CELL_SIZE = 12; // 600px / 50 = 12px
-        const COLOR_ALIVE = '#0f0';
-        const COLOR_DEAD = '#000';
-        const COLOR_GRID = '#1a1a1a';
+        const CELL_SIZE = 12;
 
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
@@ -60,21 +57,27 @@
         let grid = createGrid();
         let animationId = null;
         let isRunning = false;
-        let isDrawing = false; // マウスドラッグ描画用
+        let isDrawing = false;
+        
+        // 色相（Rainbow用）
+        let hue = 0;
 
-        // 初期化：2次元配列を作成
         function createGrid() {
             return new Array(ROWS).fill(null).map(() => new Array(COLS).fill(0));
         }
 
-        // 描画処理 (Canvas)
         function draw() {
-            // 全体をクリア
-            ctx.fillStyle = COLOR_DEAD;
+            // 【変更点1】画面を真っ黒でクリアするのではなく、
+            // 「半透明の黒」で塗りつぶす。これで過去の描画が薄く残り、残像になる。
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.15)'; // 0.15が残像の強さ
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
             // 生きているセルを描画
-            ctx.fillStyle = COLOR_ALIVE;
+            // 【変更点2】色を固定の緑ではなく、変化するHslカラーにする
+            ctx.fillStyle = `hsl(${hue}, 100%, 50%)`;
+            ctx.shadowBlur = 15; // 【変更点3】光っているように見せる（重ければ削除）
+            ctx.shadowColor = `hsl(${hue}, 100%, 50%)`;
+
             for (let y = 0; y < ROWS; y++) {
                 for (let x = 0; x < COLS; x++) {
                     if (grid[y][x]) {
@@ -82,125 +85,92 @@
                     }
                 }
             }
-
-            // グリッド線（オプション：重ければ消してもOK）
-            ctx.strokeStyle = COLOR_GRID;
-            ctx.beginPath();
-            for (let i = 0; i <= ROWS; i++) {
-                ctx.moveTo(0, i * CELL_SIZE);
-                ctx.lineTo(canvas.width, i * CELL_SIZE);
-            }
-            for (let j = 0; j <= COLS; j++) {
-                ctx.moveTo(j * CELL_SIZE, 0);
-                ctx.lineTo(j * CELL_SIZE, canvas.height);
-            }
-            ctx.stroke();
+            
+            // 描画ごとに色相を回す
+            hue = (hue + 0.5) % 360;
         }
 
-        // 次の世代の計算
         function computeNextGen() {
-            const nextGrid = grid.map(arr => [...arr]); // コピー作成
-            
+            const nextGrid = grid.map(arr => [...arr]);
             for (let y = 0; y < ROWS; y++) {
                 for (let x = 0; x < COLS; x++) {
-                    // 周囲の生存数をカウント
                     let neighbors = 0;
                     for (let dy = -1; dy <= 1; dy++) {
                         for (let dx = -1; dx <= 1; dx++) {
                             if (dx === 0 && dy === 0) continue;
                             const ny = y + dy;
                             const nx = x + dx;
-                            // 範囲外チェック
-                            if (ny >= 0 && ny < ROWS && nx >= 0 && nx < COLS) {
-                                neighbors += grid[ny][nx];
-                            }
+                            // ループする世界にする（端っこが反対側に繋がる）
+                            // これも「おもろい」ポイントの一つ
+                            const wy = (ny + ROWS) % ROWS;
+                            const wx = (nx + COLS) % COLS;
+                            neighbors += grid[wy][wx];
                         }
                     }
-
                     const cell = grid[y][x];
-                    if (cell === 1 && (neighbors < 2 || neighbors > 3)) {
-                        nextGrid[y][x] = 0;
-                    } else if (cell === 0 && neighbors === 3) {
-                        nextGrid[y][x] = 1;
-                    }
+                    if (cell === 1 && (neighbors < 2 || neighbors > 3)) nextGrid[y][x] = 0;
+                    else if (cell === 0 && neighbors === 3) nextGrid[y][x] = 1;
                 }
             }
             grid = nextGrid;
         }
 
         function loop() {
-            computeNextGen();
-            draw();
             if (isRunning) {
-                // requestAnimationFrameでモニタのリフレッシュレートに合わせて更新（最速）
-                // 速すぎる場合は setTimeout(() => requestAnimationFrame(loop), 50) とかで調整
-                animationId = setTimeout(() => requestAnimationFrame(loop), 30); 
+                computeNextGen();
             }
+            draw(); // 停止中も残像処理を描画し続けるとかっこいいので常時呼ぶ
+            animationId = setTimeout(() => requestAnimationFrame(loop), 30); 
         }
 
-        // --- イベントハンドラ ---
-
+        // --- 以下イベントハンドラは同じ ---
         const btnToggle = document.getElementById('btn-toggle');
-        
         btnToggle.addEventListener('click', () => {
             if (isRunning) {
                 isRunning = false;
-                cancelAnimationFrame(animationId);
                 btnToggle.textContent = 'Start';
             } else {
                 isRunning = true;
                 btnToggle.textContent = 'Stop';
-                loop();
             }
         });
 
         document.getElementById('btn-step').addEventListener('click', () => {
-            if (isRunning) btnToggle.click(); // 停止
             computeNextGen();
-            draw();
+            // drawはloopで常に回っているのでここでは呼ばなくてOK
         });
 
         document.getElementById('btn-random').addEventListener('click', () => {
-            grid = grid.map(row => row.map(() => Math.random() > 0.9 ? 1 : 0));
-            draw();
+            grid = grid.map(row => row.map(() => Math.random() > 0.8 ? 1 : 0));
         });
 
         document.getElementById('btn-clear').addEventListener('click', () => {
             grid = createGrid();
-            if (isRunning) btnToggle.click();
-            draw();
+            // 画面を一度真っ黒に戻す
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
         });
 
-        // マウス操作（クリック＆ドラッグで描画）
+        // マウス操作
         function getCellFromMouseEvent(e) {
             const rect = canvas.getBoundingClientRect();
             const x = Math.floor((e.clientX - rect.left) / CELL_SIZE);
             const y = Math.floor((e.clientY - rect.top) / CELL_SIZE);
             return { x, y };
         }
-
         canvas.addEventListener('mousedown', (e) => {
             isDrawing = true;
             const { x, y } = getCellFromMouseEvent(e);
-            if (x >= 0 && x < COLS && y >= 0 && y < ROWS) {
-                grid[y][x] = grid[y][x] ? 0 : 1; // 反転
-                draw();
-            }
+            if (x>=0 && x<COLS && y>=0 && y<ROWS) grid[y][x] = grid[y][x] ? 0 : 1;
         });
-
         canvas.addEventListener('mousemove', (e) => {
             if (!isDrawing) return;
             const { x, y } = getCellFromMouseEvent(e);
-            if (x >= 0 && x < COLS && y >= 0 && y < ROWS) {
-                grid[y][x] = 1; // ドラッグ中は「生」にする
-                draw();
-            }
+            if (x>=0 && x<COLS && y>=0 && y<ROWS) grid[y][x] = 1;
         });
-
         window.addEventListener('mouseup', () => isDrawing = false);
 
-        // 初回描画
-        draw();
-    </script>
+        // ループ開始
+        loop();    </script>
 </body>
 </html>
