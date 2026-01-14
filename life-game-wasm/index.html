@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Rust Wasm Game of Life</title>
+    <style>
+        body { 
+            background: #000; 
+            margin: 0; 
+            overflow: hidden; /* スクロールバーを消す */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        canvas { 
+            image-rendering: pixelated; /* ドットをくっきりさせる */
+            width: 100%;  /* CSS的には画面いっぱい */
+            height: 100%; /* CSS的には画面いっぱい */
+            display: block;
+        }
+        /* ボタンのデザインを少し邪魔にならないように変更 */
+        #random-btn {
+            position: absolute; 
+            top: 20px; 
+            left: 20px; 
+            z-index: 10;
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            border: 1px solid #555;
+            padding: 8px 16px;
+            cursor: pointer;
+            font-family: sans-serif;
+            backdrop-filter: blur(4px);
+            transition: background 0.2s;
+        }
+        #random-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <button id="random-btn">Random</button>
+    <canvas id="game-of-life-canvas"></canvas>
+
+    <script type="module">
+        import init, { Universe } from './pkg/life_game_wasm.js';
+
+        // ★設定: 1セルのピクセルサイズ（大きくすると「ドット感」が出て、処理も軽くなる）
+        const CELL_SIZE = 2; 
+
+        async function run() {
+            const wasm = await init();
+            
+            // 画面サイズに合わせてUniverseのサイズを計算
+            const screenW = window.innerWidth;
+            const screenH = window.innerHeight;
+
+            // CELL_SIZEで割って、必要なグリッド数を出す
+            const width = Math.ceil(screenW / CELL_SIZE);
+            const height = Math.ceil(screenH / CELL_SIZE);
+            
+            const universe = Universe.new(width, height);
+            
+            const canvas = document.getElementById('game-of-life-canvas');
+            // Canvasの「内部解像度」を計算したグリッド数に合わせる
+            canvas.width = width;
+            canvas.height = height;
+
+            const ctx = canvas.getContext('2d');
+            const imageData = ctx.createImageData(width, height);
+            const data = imageData.data;
+
+            // Randomボタン
+            document.getElementById('random-btn').addEventListener('click', () => {
+                const randomSeed = Math.floor(Math.random() * 0xFFFFFFFF);
+                universe.reset_random(randomSeed);
+            });
+
+            // 初期状態で一度ランダムにする（壁紙として起動したとき用）
+            universe.reset_random(Math.floor(Math.random() * 0xFFFFFFFF));
+
+            const renderLoop = () => {
+                universe.tick();
+
+                const cellsPtr = universe.cells();
+                const cells = new Uint8Array(wasm.memory.buffer, cellsPtr, width * height);
+
+                for (let i = 0; i < cells.length; i++) {
+                    const isAlive = cells[i] === 1; 
+                    const offset = i * 4;
+                    
+                    // 色設定 (R, G, B, A)
+                    // 生存: 明るい緑 (#00FF00), 死滅: 黒 (#000000)
+                    data[offset]     = 0;
+                    data[offset + 1] = isAlive ? 255 : 0;
+                    data[offset + 2] = 0;
+                    data[offset + 3] = 200;
+                }
+
+                ctx.putImageData(imageData, 0, 0);
+                requestAnimationFrame(renderLoop);
+            };
+
+            requestAnimationFrame(renderLoop);
+        }
+
+        // リサイズ時の処理: 画面サイズが変わったらリロードして合わせ直す
+        // (Wasmのメモリ再確保などをサボるための簡易策)
+        let resizeTimer;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+                window.location.reload();
+            }, 500);
+        });
+
+        run();
+    </script>
+</body>
+</html>

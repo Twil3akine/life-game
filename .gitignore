@@ -1,0 +1,16 @@
+# Rustのビルド生成物（サイズが巨大なので必須）
+**/target
+
+# wasm-packで生成されるJS/Wasm（ビルドで再生成できるので除外）
+**/pkg
+
+# エディタの設定ファイル（個人の環境依存なので除外）
+.vscode/
+.idea/
+
+# Windowsの一時ファイル
+Thumbs.db
+ehthumbs.db
+
+# Macの一時ファイル（念のため）
+.DS_Store
